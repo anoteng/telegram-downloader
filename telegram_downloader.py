@@ -13,8 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from configparser import ConfigParser
 from telethon import TelegramClient, events
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, ReactionEmoji
-from telethon.tl.functions.messages import GetMessagesReactionsRequest
+from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, UpdateMessageReactions
 
 
 class TelegramDownloader:
@@ -47,6 +46,9 @@ class TelegramDownloader:
         
         # Initialize Telegram client
         self.client = TelegramClient('telegram_session', self.api_id, self.api_hash)
+        
+        # Track downloaded messages to avoid duplicates
+        self.downloaded_messages = set()
         
         # Store my user ID for checking reactions
         self.my_id = None
@@ -105,20 +107,19 @@ class TelegramDownloader:
             filename = filename.replace(char, '_')
         return filename
     
-    async def _has_my_reaction(self, message, emoji):
-        """Check if I have reacted to this message with the specified emoji"""
+    def _has_my_reaction(self, reactions, emoji):
+        """Check if I have reacted with the specified emoji"""
         try:
-            # Get reactions for this message
-            if not message.reactions or not message.reactions.results:
+            if not reactions or not reactions.results:
                 return False
             
-            # Check if any reaction matches our emoji and is from us
-            for reaction in message.reactions.results:
+            # Check each reaction
+            for reaction in reactions.results:
+                # Check if this is the emoji we're looking for
                 if hasattr(reaction.reaction, 'emoticon'):
                     if reaction.reaction.emoticon == emoji:
-                        # Check if we're among the reactors
-                        # For privacy reasons, we need to check if reaction.chosen is True
-                        if hasattr(reaction, 'chosen') and reaction.chosen:
+                        # Check if chosen_order is set (means we reacted)
+                        if hasattr(reaction, 'chosen_order') and reaction.chosen_order is not None:
                             return True
             
             return False
@@ -127,12 +128,12 @@ class TelegramDownloader:
             self.logger.debug(f"Error checking reactions: {e}")
             return False
     
-    async def download_media(self, message):
+    async def download_media(self, message, chat_title):
         """Download media from a message"""
         # Check if message has media
         if not message.media:
-            self.logger.debug("Message has no media")
-            return
+            self.logger.debug(f"Message {message.id} has no media")
+            return False
         
         try:
             # Get file information
@@ -162,30 +163,32 @@ class TelegramDownloader:
                 
             else:
                 self.logger.debug(f"Unsupported media type: {type(message.media)}")
-                return
+                return False
             
             # Sanitize filename
             filename = self._sanitize_filename(filename)
             
             # Check if we should download this file
             if not self._should_download(filename, file_size):
-                return
+                return False
             
             # Check if file already exists
             download_file_path = self.download_path / filename
             if download_file_path.exists():
                 self.logger.info(f"File already exists: {filename}")
-                return
+                return True  # Mark as downloaded even though we skipped it
             
             # Download the file
-            self.logger.info(f"Downloading: {filename} ({file_size / (1024*1024):.2f} MB)")
+            self.logger.info(f"Downloading from '{chat_title}': {filename} ({file_size / (1024*1024):.2f} MB)")
             
             await message.download_media(file=str(download_file_path))
             
             self.logger.info(f"✓ Downloaded successfully: {filename}")
+            return True
             
         except Exception as e:
             self.logger.error(f"Error downloading media: {e}", exc_info=True)
+            return False
     
     async def start(self):
         """Start the Telegram client and monitor for reactions"""
@@ -197,36 +200,69 @@ class TelegramDownloader:
         me = await self.client.get_me()
         self.my_id = me.id
         self.logger.info(f"Logged in as: {me.first_name} (ID: {me.id})")
+        self.logger.info(f"Monitoring for {self.reaction_emoji} reactions")
+        self.logger.info("Press Ctrl+C to stop.")
         
-        # Determine which chats to monitor
-        if self.monitored_chats:
-            self.logger.info(f"Monitoring reactions in: {', '.join(self.monitored_chats)}")
-            chats = self.monitored_chats
-        else:
-            self.logger.info("Monitoring reactions in ALL chats")
-            chats = None
-        
-        @self.client.on(events.MessageEdited(chats=chats))
-        @self.client.on(events.NewMessage(chats=chats))
+        @self.client.on(events.Raw(types=[UpdateMessageReactions]))
         async def reaction_handler(event):
-            """Handle reactions on messages"""
+            """Handle reaction updates"""
             try:
-                message = event.message
+                self.logger.debug(f"Reaction event received for message {event.msg_id}")
                 
-                # Check if this message has reactions
-                if not message.reactions:
+                # Check if the reaction includes our emoji
+                if not self._has_my_reaction(event.reactions, self.reaction_emoji):
+                    self.logger.debug(f"No matching reaction on message {event.msg_id}")
                     return
                 
-                # Check if I have reacted with the target emoji
-                if await self._has_my_reaction(message, self.reaction_emoji):
-                    self.logger.info(f"Detected {self.reaction_emoji} reaction from you on message {message.id}")
-                    await self.download_media(message)
+                # Get the chat
+                chat = await self.client.get_entity(event.peer)
+                chat_title = getattr(chat, 'title', getattr(chat, 'username', str(event.peer)))
+                
+                # Check if we should monitor this chat
+                if self.monitored_chats:
+                    chat_id = getattr(chat, 'id', None)
+                    chat_username = getattr(chat, 'username', None)
                     
+                    # Check if this chat is in our monitored list
+                    should_monitor = False
+                    for monitored in self.monitored_chats:
+                        if monitored.startswith('@') and chat_username:
+                            if monitored[1:] == chat_username:
+                                should_monitor = True
+                                break
+                        elif monitored.lstrip('-').isdigit():
+                            if str(chat_id) == monitored or str(chat_id) == monitored.lstrip('-'):
+                                should_monitor = True
+                                break
+                    
+                    if not should_monitor:
+                        self.logger.debug(f"Ignoring reaction in non-monitored chat: {chat_title}")
+                        return
+                
+                self.logger.info(f"Found {self.reaction_emoji} reaction on message {event.msg_id} in '{chat_title}'")
+                
+                # Create message key for duplicate checking
+                message_key = f"{event.peer.channel_id if hasattr(event.peer, 'channel_id') else event.peer}_{event.msg_id}"
+                
+                # Check if already downloaded
+                if message_key in self.downloaded_messages:
+                    self.logger.debug(f"Message {event.msg_id} already downloaded")
+                    return
+                
+                # Get the actual message
+                messages = await self.client.get_messages(chat, ids=event.msg_id)
+                if messages:
+                    message = messages[0] if isinstance(messages, list) else messages
+                    
+                    # Try to download
+                    if await self.download_media(message, chat_title):
+                        # Mark as downloaded
+                        self.downloaded_messages.add(message_key)
+                
             except Exception as e:
                 self.logger.error(f"Error in reaction handler: {e}", exc_info=True)
         
         # Keep the client running
-        self.logger.info(f"Monitoring for {self.reaction_emoji} reactions. Press Ctrl+C to stop.")
         await self.client.run_until_disconnected()
 
 
@@ -249,6 +285,8 @@ def main():
         print("\nDownloader stopped by user")
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

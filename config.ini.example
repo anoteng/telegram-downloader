@@ -4,6 +4,11 @@ api_id = YOUR_API_ID
 api_hash = YOUR_API_HASH
 phone = YOUR_PHONE_NUMBER
 
+# Groups/channels to monitor (comma-separated)
+# You can use group/channel username (e.g., @groupname) or numeric ID
+# Leave empty to monitor ALL groups
+monitored_chats =
+
 [Download]
 # Path where media files will be downloaded
 download_path = /path/to/incoming/folder
