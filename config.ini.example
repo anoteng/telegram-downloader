@@ -1,0 +1,21 @@
+[Telegram]
+# Get these from https://my.telegram.org/apps
+api_id = YOUR_API_ID
+api_hash = YOUR_API_HASH
+phone = YOUR_PHONE_NUMBER
+
+[Download]
+# Path where media files will be downloaded
+download_path = /path/to/incoming/folder
+
+# File types to download (comma-separated)
+# Leave empty to download all media types
+file_extensions = .mp4,.mkv,.avi,.mov,.wmv,.flv,.webm,.m4v,.torrent,.nzb
+
+# Maximum file size in MB (0 = no limit)
+max_file_size_mb = 0
+
+[Logging]
+# Log file path (leave empty for console only)
+log_file = telegram_downloader.log
+log_level = INFO
