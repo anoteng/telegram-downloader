@@ -1,6 +1,13 @@
 # Telegram Media Downloader
 
-Automatically download media files from Telegram Saved Messages to a folder that Sonarr can monitor.
+Automatically download media files from Telegram groups/channels when you react to messages with ❤️. Perfect for use with Sonarr!
+
+## Features
+
+- React to any message with ❤️ (heart) to download its media
+- Works with regular groups, channels, and topic-based groups (forums)
+- Automatic file type filtering
+- Integrates seamlessly with Sonarr
 
 ## Installation
 
@@ -29,8 +36,16 @@ api_id = YOUR_API_ID          # From https://my.telegram.org/apps
 api_hash = YOUR_API_HASH      # From https://my.telegram.org/apps
 phone = +1234567890           # Your phone number with country code
 
+# Optional: Specify which groups to monitor (comma-separated)
+# Leave empty to monitor ALL groups
+monitored_chats = @groupname1, @groupname2
+
 [Download]
 download_path = /mnt/nas/incoming    # Where files will be downloaded
+
+# Emoji to trigger download (default: ❤️)
+reaction_emoji = ❤️
+
 file_extensions = .mp4,.mkv,.avi,.mov,.wmv,.flv,.webm,.m4v,.torrent,.nzb
 max_file_size_mb = 0                 # 0 = no limit
 
@@ -50,13 +65,21 @@ After this, the session is saved and you won't need to log in again.
 
 ## Usage
 
+### How it works
+
+1. **Start the script** (see below for manual or service setup)
+2. **Find a video/file** you want to download in any Telegram group
+3. **React with ❤️** to the message
+4. **File downloads automatically** to `/mnt/nas/incoming`
+5. **Sonarr picks it up** and processes it
+
 ### Manual execution
 
 ```bash
 python3 telegram_downloader.py
 ```
 
-The script will now run continuously and download media as soon as you save something to Saved Messages.
+The script will run continuously and monitor for your ❤️ reactions in real-time.
 
 ### Run as systemd service (recommended)
 
@@ -105,13 +128,35 @@ To make Sonarr automatically pick up the files:
 
 Alternatively, you can set up an "Import List" or use Sonarr's "Drone Factory" functionality.
 
-## How It Works
+## Topic Groups Support
 
-1. You save or forward a video/torrent to "Saved Messages" in Telegram
-2. The script detects the new message immediately
-3. The file is downloaded to `/mnt/nas/incoming`
-4. Sonarr monitors this folder and imports the file automatically
-5. Sonarr identifies the series and moves the file to the correct folder
+The script fully supports Telegram topic groups (forums). Just react with ❤️ to any message in any topic, and it will download the media. You don't need to configure anything special.
+
+## Advanced Configuration
+
+### Monitor specific groups only
+
+Edit `config.ini` and set `monitored_chats`:
+
+```ini
+monitored_chats = @mytvgroup, @animegroup, -1001234567890
+```
+
+You can use:
+- Group/channel username (e.g., `@groupname`)
+- Numeric group ID (e.g., `-1001234567890`)
+
+To get a group's ID, forward a message from it to [@userinfobot](https://t.me/userinfobot).
+
+### Change the reaction emoji
+
+Don't like ❤️? Change it in `config.ini`:
+
+```ini
+reaction_emoji = 📥
+```
+
+Any emoji works: 👍, ⬇️, 💾, etc.
 
 ## Troubleshooting
 
@@ -122,6 +167,11 @@ Ensure the user running the script has write access to the download folder:
 sudo chown -R $USER:$USER /mnt/nas/incoming
 chmod 755 /mnt/nas/incoming
 ```
+
+### Script doesn't detect my reactions
+- Make sure the script is running (`systemctl status telegram_downloader`)
+- Check that you're using the correct emoji (default: ❤️)
+- Verify the group is being monitored (check `monitored_chats` in config)
 
 ### Script downloads everything, not just media
 Check `file_extensions` in `config.ini`. Set it to only the formats you want.

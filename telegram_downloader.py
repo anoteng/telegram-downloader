@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Telegram Media Downloader
-Monitors your Saved Messages and automatically downloads media files to a specified directory.
+Monitors groups/channels and downloads media from messages you react to with a specific emoji.
+Supports topic-based groups (forums).
 """
 
 import os
@@ -12,7 +13,8 @@ from pathlib import Path
 from datetime import datetime
 from configparser import ConfigParser
 from telethon import TelegramClient, events
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
+from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, ReactionEmoji
+from telethon.tl.functions.messages import GetMessagesReactionsRequest
 
 
 class TelegramDownloader:
@@ -25,8 +27,13 @@ class TelegramDownloader:
         self.api_hash = self.config.get('Telegram', 'api_hash')
         self.phone = self.config.get('Telegram', 'phone')
         
+        # Monitored chats
+        monitored = self.config.get('Telegram', 'monitored_chats', fallback='')
+        self.monitored_chats = [chat.strip() for chat in monitored.split(',') if chat.strip()]
+        
         # Download settings
         self.download_path = Path(self.config.get('Download', 'download_path'))
+        self.reaction_emoji = self.config.get('Download', 'reaction_emoji', fallback='❤️')
         self.file_extensions = [ext.strip() for ext in 
                                self.config.get('Download', 'file_extensions').split(',') 
                                if ext.strip()]
@@ -41,8 +48,13 @@ class TelegramDownloader:
         # Initialize Telegram client
         self.client = TelegramClient('telegram_session', self.api_id, self.api_hash)
         
+        # Store my user ID for checking reactions
+        self.my_id = None
+        
         self.logger.info(f"Telegram Downloader initialized")
         self.logger.info(f"Download path: {self.download_path}")
+        self.logger.info(f"Reaction emoji: {self.reaction_emoji}")
+        self.logger.info(f"Monitored chats: {self.monitored_chats if self.monitored_chats else 'ALL'}")
         self.logger.info(f"File extensions filter: {self.file_extensions if self.file_extensions else 'ALL'}")
     
     def _setup_logging(self):
@@ -93,12 +105,33 @@ class TelegramDownloader:
             filename = filename.replace(char, '_')
         return filename
     
-    async def download_media(self, event):
+    async def _has_my_reaction(self, message, emoji):
+        """Check if I have reacted to this message with the specified emoji"""
+        try:
+            # Get reactions for this message
+            if not message.reactions or not message.reactions.results:
+                return False
+            
+            # Check if any reaction matches our emoji and is from us
+            for reaction in message.reactions.results:
+                if hasattr(reaction.reaction, 'emoticon'):
+                    if reaction.reaction.emoticon == emoji:
+                        # Check if we're among the reactors
+                        # For privacy reasons, we need to check if reaction.chosen is True
+                        if hasattr(reaction, 'chosen') and reaction.chosen:
+                            return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.debug(f"Error checking reactions: {e}")
+            return False
+    
+    async def download_media(self, message):
         """Download media from a message"""
-        message = event.message
-        
         # Check if message has media
         if not message.media:
+            self.logger.debug("Message has no media")
             return
         
         try:
@@ -155,34 +188,46 @@ class TelegramDownloader:
             self.logger.error(f"Error downloading media: {e}", exc_info=True)
     
     async def start(self):
-        """Start the Telegram client and monitor Saved Messages"""
+        """Start the Telegram client and monitor for reactions"""
         await self.client.start(phone=self.phone)
         
         self.logger.info("Connected to Telegram!")
-        self.logger.info("Monitoring Saved Messages for new media...")
         
-        # Get "me" (Saved Messages is a chat with yourself)
+        # Get my user ID
         me = await self.client.get_me()
+        self.my_id = me.id
+        self.logger.info(f"Logged in as: {me.first_name} (ID: {me.id})")
         
-        @self.client.on(events.NewMessage(chats=me.id))
-        async def handler(event):
-            """Handle new messages in Saved Messages"""
-            await self.download_media(event)
+        # Determine which chats to monitor
+        if self.monitored_chats:
+            self.logger.info(f"Monitoring reactions in: {', '.join(self.monitored_chats)}")
+            chats = self.monitored_chats
+        else:
+            self.logger.info("Monitoring reactions in ALL chats")
+            chats = None
+        
+        @self.client.on(events.MessageEdited(chats=chats))
+        @self.client.on(events.NewMessage(chats=chats))
+        async def reaction_handler(event):
+            """Handle reactions on messages"""
+            try:
+                message = event.message
+                
+                # Check if this message has reactions
+                if not message.reactions:
+                    return
+                
+                # Check if I have reacted with the target emoji
+                if await self._has_my_reaction(message, self.reaction_emoji):
+                    self.logger.info(f"Detected {self.reaction_emoji} reaction from you on message {message.id}")
+                    await self.download_media(message)
+                    
+            except Exception as e:
+                self.logger.error(f"Error in reaction handler: {e}", exc_info=True)
         
         # Keep the client running
-        self.logger.info("Downloader is running. Press Ctrl+C to stop.")
+        self.logger.info(f"Monitoring for {self.reaction_emoji} reactions. Press Ctrl+C to stop.")
         await self.client.run_until_disconnected()
-    
-    async def download_existing(self, limit=100):
-        """Download existing media from Saved Messages (optional)"""
-        self.logger.info(f"Checking last {limit} messages in Saved Messages for media...")
-        
-        me = await self.client.get_me()
-        async for message in self.client.iter_messages(me.id, limit=limit):
-            if message.media:
-                await self.download_media(type('Event', (), {'message': message})())
-        
-        self.logger.info("Finished checking existing messages")
 
 
 def main():
@@ -191,7 +236,7 @@ def main():
     if not os.path.exists('config.ini'):
         print("Error: config.ini not found!")
         print("Please create config.ini with your Telegram credentials.")
-        print("See config.ini.example for reference.")
+        print("See config.ini for reference.")
         sys.exit(1)
     
     # Create downloader instance
