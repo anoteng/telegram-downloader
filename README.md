@@ -1,73 +1,78 @@
 # Telegram Media Downloader
 
-Automatisk nedlasting av media-filer fra Telegram Saved Messages til en mappe som Sonarr kan overvåke.
+Automatically download media files from Telegram Saved Messages to a folder that Sonarr can monitor.
 
-## Installasjon
+## Installation
 
-### 1. Installer Python og Telethon
+### 1. Install Python and Telethon
 
+**On Debian/Ubuntu and derivatives:**
 ```bash
-# På Linux/Synology
+sudo apt install python3-telethon
+```
+
+**On other Linux distributions/Synology:**
+```bash
 pip3 install telethon
 
-# Eller med --user hvis du ikke har admin-rettigheter
+# Or with --user if you don't have admin privileges
 pip3 install --user telethon
 ```
 
-### 2. Konfigurer scriptet
+### 2. Configure the script
 
-Rediger `config.ini` og fyll inn dine verdier:
+Edit `config.ini` and fill in your values:
 
 ```ini
 [Telegram]
-api_id = DIN_API_ID          # Fra https://my.telegram.org/apps
-api_hash = DIN_API_HASH      # Fra https://my.telegram.org/apps
-phone = +4712345678          # Ditt telefonnummer med landskode
+api_id = YOUR_API_ID          # From https://my.telegram.org/apps
+api_hash = YOUR_API_HASH      # From https://my.telegram.org/apps
+phone = +1234567890           # Your phone number with country code
 
 [Download]
-download_path = /mnt/nas/incoming    # Hvor filene skal lastes ned
+download_path = /mnt/nas/incoming    # Where files will be downloaded
 file_extensions = .mp4,.mkv,.avi,.mov,.wmv,.flv,.webm,.m4v,.torrent,.nzb
-max_file_size_mb = 0                 # 0 = ingen grense
+max_file_size_mb = 0                 # 0 = no limit
 
 [Logging]
 log_file = telegram_downloader.log
 log_level = INFO
 ```
 
-### 3. Første gangs kjøring
+### 3. First run
 
 ```bash
 python3 telegram_downloader.py
 ```
 
-Første gang du kjører scriptet vil du få en kode på Telegram som du må taste inn.
-Etter dette lagres økten og du trenger ikke logge inn igjen.
+The first time you run the script, you'll receive a code via Telegram that you need to enter.
+After this, the session is saved and you won't need to log in again.
 
-## Bruk
+## Usage
 
-### Manuell kjøring
+### Manual execution
 
 ```bash
 python3 telegram_downloader.py
 ```
 
-Scriptet vil nå kjøre kontinuerlig og laste ned media så fort du lagrer noe i Saved Messages.
+The script will now run continuously and download media as soon as you save something to Saved Messages.
 
-### Kjøre som systemd service (anbefalt)
+### Run as systemd service (recommended)
 
-Dette gjør at scriptet starter automatisk ved oppstart og restarter hvis det krasjer.
+This ensures the script starts automatically on boot and restarts if it crashes.
 
-1. **Rediger service-filen:**
+1. **Edit the service file:**
 
 ```bash
 nano telegram_downloader.service
 ```
 
-Endre:
-- `YOUR_USERNAME` til ditt brukernavn
-- `/path/to/telegram_downloader` til mappen der scriptet ligger
+Change:
+- `YOUR_USERNAME` to your username
+- `/path/to/telegram_downloader` to the folder where the script is located
 
-2. **Installer servicen:**
+2. **Install the service:**
 
 ```bash
 sudo cp telegram_downloader.service /etc/systemd/system/
@@ -76,91 +81,91 @@ sudo systemctl enable telegram_downloader
 sudo systemctl start telegram_downloader
 ```
 
-3. **Sjekk status:**
+3. **Check status:**
 
 ```bash
 sudo systemctl status telegram_downloader
 ```
 
-4. **Se logger:**
+4. **View logs:**
 
 ```bash
 sudo journalctl -u telegram_downloader -f
 ```
 
-## Sonarr-oppsett
+## Sonarr Setup
 
-For at Sonarr skal plukke opp filene automatisk:
+To make Sonarr automatically pick up the files:
 
-1. Gå til **Settings → Download Clients** i Sonarr
-2. Legg til en ny "Download Client"
-3. Velg "Manual" eller "Blackhole" type
-4. Sett "Watch Folder" til `/mnt/nas/incoming`
-5. Aktiver "Remove Completed Downloads"
+1. Go to **Settings → Download Clients** in Sonarr
+2. Add a new "Download Client"
+3. Select "Manual" or "Blackhole" type
+4. Set "Watch Folder" to `/mnt/nas/incoming`
+5. Enable "Remove Completed Downloads"
 
-Alternativt kan du sette opp en "Import List" eller bruke Sonarr's "Drone Factory" funksjonalitet.
+Alternatively, you can set up an "Import List" or use Sonarr's "Drone Factory" functionality.
 
-## Hvordan det fungerer
+## How It Works
 
-1. Du lagrer eller videresender en video/torrent til "Saved Messages" i Telegram
-2. Scriptet oppdager den nye meldingen umiddelbart
-3. Filen lastes ned til `/mnt/nas/incoming`
-4. Sonarr overvåker denne mappen og importerer filen automatisk
-5. Sonarr identifiserer serien og flytter filen til riktig mappe
+1. You save or forward a video/torrent to "Saved Messages" in Telegram
+2. The script detects the new message immediately
+3. The file is downloaded to `/mnt/nas/incoming`
+4. Sonarr monitors this folder and imports the file automatically
+5. Sonarr identifies the series and moves the file to the correct folder
 
-## Feilsøking
+## Troubleshooting
 
-### "Permission denied" når du kjører scriptet
-Sørg for at brukeren som kjører scriptet har skrivetilgang til download-mappen:
+### "Permission denied" when running the script
+Ensure the user running the script has write access to the download folder:
 
 ```bash
 sudo chown -R $USER:$USER /mnt/nas/incoming
 chmod 755 /mnt/nas/incoming
 ```
 
-### Scriptet laster ned alt, ikke bare media
-Sjekk `file_extensions` i `config.ini`. Sett den til kun de formatene du vil ha.
+### Script downloads everything, not just media
+Check `file_extensions` in `config.ini`. Set it to only the formats you want.
 
-### Servicen starter ikke
-Sjekk loggene:
+### Service won't start
+Check the logs:
 
 ```bash
 sudo journalctl -u telegram_downloader -n 50
 ```
 
-### Duplikate nedlastinger
-Scriptet sjekker om filen allerede eksisterer før nedlasting. Hvis Sonarr flytter filen raskt,
-kan den samme filen lastes ned igjen. Løsning: La filene ligge i incoming-mappen litt lenger,
-eller sett opp Sonarr til å kopiere istedenfor å flytte.
+### Duplicate downloads
+The script checks if a file already exists before downloading. If Sonarr moves the file quickly,
+the same file might be downloaded again. Solution: Let files stay in the incoming folder a bit longer,
+or configure Sonarr to copy instead of move.
 
-## Kommandoer
+## Commands
 
-### Stopp servicen
+### Stop the service
 ```bash
 sudo systemctl stop telegram_downloader
 ```
 
-### Start servicen
+### Start the service
 ```bash
 sudo systemctl start telegram_downloader
 ```
 
-### Restart servicen
+### Restart the service
 ```bash
 sudo systemctl restart telegram_downloader
 ```
 
-### Deaktiver autostart
+### Disable autostart
 ```bash
 sudo systemctl disable telegram_downloader
 ```
 
-## Sikkerhet
+## Security
 
-- `config.ini` inneholder sensitive data (API-nøkler). Hold denne filen privat.
-- `telegram_session.session` filen gir full tilgang til Telegram-kontoen din. Beskytt den godt.
-- Bruk aldri API-nøklene dine i offentlige repositories eller del dem med andre.
+- `config.ini` contains sensitive data (API keys). Keep this file private.
+- The `telegram_session.session` file gives full access to your Telegram account. Protect it well.
+- Never use your API keys in public repositories or share them with others.
 
-## Lisens
+## License
 
-Dette scriptet er laget for personlig bruk. Bruk på egen risiko.
+This script is made for personal use. Use at your own risk.
