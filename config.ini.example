@@ -13,9 +13,9 @@ monitored_chats =
 # Path where media files will be downloaded
 download_path = /path/to/incoming/folder
 
-# Reaction emoji to trigger download (default: ❤️)
+# Reaction emoji to trigger download (default: ❤)
 # The script will download files from messages YOU react to with this emoji
-reaction_emoji = ❤️
+reaction_emoji = ❤
 
 # File types to download (comma-separated)
 # Leave empty to download all media types
@@ -23,6 +23,36 @@ file_extensions = .mp4,.mkv,.avi,.mov,.wmv,.flv,.webm,.m4v,.torrent,.nzb
 
 # Maximum file size in MB (0 = no limit)
 max_file_size_mb = 0
+
+# Maximum concurrent downloads (1-5 recommended, default: 2)
+# Higher values = faster downloads but more bandwidth usage
+# Telegram may rate-limit if you download too many files simultaneously
+max_concurrent_downloads = 2
+
+[Sonarr]
+# Enable automatic import to Sonarr (true/false)
+enabled = false
+
+# Sonarr API URL and key
+# Example: http://localhost:8989
+sonarr_url =
+
+# Get this from Sonarr -> Settings -> General -> Security -> API Key
+sonarr_api_key =
+
+[Notifications]
+# Send notifications about downloads to a Telegram chat
+# Leave empty to disable, use "me" for Saved Messages, or chat username/@channel
+notification_chat =
+
+[LinkDownload]
+# Enable downloading files by posting Telegram links
+# When enabled, post a t.me/... link in the specified chat to download that message
+enabled = false
+
+# Chat where you can post links (leave empty to disable)
+# Use chat username, @channel, or chat ID
+link_chat = -1003507021998
 
 [Logging]
 # Log file path (leave empty for console only)
