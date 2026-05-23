@@ -43,6 +43,10 @@ class TelegramDownloader:
         self.sonarr_enabled = self.config.getboolean('Sonarr', 'enabled', fallback=False)
         self.sonarr_url = self.config.get('Sonarr', 'sonarr_url', fallback='').rstrip('/')
         self.sonarr_api_key = self.config.get('Sonarr', 'sonarr_api_key', fallback='')
+
+        # Torznab indexer server
+        self.torznab_enabled = self.config.getboolean('Torznab', 'enabled', fallback=False)
+        self.torznab_server = None
         
         # Notification settings
         self.notification_chat = self.config.get('Notifications', 'notification_chat', fallback='')
@@ -80,6 +84,13 @@ class TelegramDownloader:
         
         if self.sonarr_enabled:
             self.logger.info(f"Sonarr integration: ENABLED ({self.sonarr_url})")
+
+        if self.torznab_enabled:
+            from torznab_server import TorznabServer
+            self.torznab_server = TorznabServer(self)
+            self.logger.info(
+                f"Torznab indexer: ENABLED (port {self.torznab_server.port})"
+            )
         
         if self.notification_chat:
             self.logger.info(f"Notifications: ENABLED (chat: {self.notification_chat})")
@@ -388,6 +399,9 @@ class TelegramDownloader:
         self.logger.info(f"Logged in as: {me.first_name} (ID: {me.id})")
         self.logger.info(f"Monitoring for {self.reaction_emoji} reactions")
         self.logger.info("Press Ctrl+C to stop.")
+
+        if self.torznab_server:
+            await self.torznab_server.start()
         
         @self.client.on(events.NewMessage)
         async def link_handler(event):

@@ -40,6 +40,27 @@ sonarr_url =
 # Get this from Sonarr -> Settings -> General -> Security -> API Key
 sonarr_api_key =
 
+[Torznab]
+# Run a Torznab-compatible HTTP server so Sonarr/Radarr/Prowlarr can search Telegram channels.
+# Add as a custom Torznab indexer: URL = http://<host>:<port>/api, API key = value below.
+enabled = false
+
+# Address and port the HTTP server listens on
+host = 0.0.0.0
+port = 9117
+
+# API key (leave empty to disable auth — not recommended on a shared network)
+api_key = changeme
+
+# How Sonarr/Prowlarr reaches this server from its own host
+# Change if running in Docker or on a different machine
+base_url = http://localhost:9117
+
+# Channels/groups to include in search results (comma-separated)
+# Accepts the same formats as monitored_chats: @username or numeric ID
+# Leave empty to use monitored_chats
+search_chats =
+
 [Notifications]
 # Send notifications about downloads to a Telegram chat
 # Leave empty to disable, use "me" for Saved Messages, or chat username/@channel
