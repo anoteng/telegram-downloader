@@ -168,37 +168,85 @@ class TelegramDownloader:
             self.logger.error(f"Failed to send notification: {e}")
     
     async def import_to_sonarr(self, file_path):
-        """Import a downloaded file to Sonarr"""
+        """Import a downloaded file to Sonarr via the two-step ManualImport API."""
         if not self.sonarr_enabled or not self.sonarr_url or not self.sonarr_api_key:
             return False
-        
+
+        headers = {"X-Api-Key": self.sonarr_api_key}
+
         try:
             import aiohttp
-            
-            # Sonarr Manual Import API
-            url = f"{self.sonarr_url}/api/v3/command"
-            headers = {
-                "X-Api-Key": self.sonarr_api_key,
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "name": "DownloadedEpisodesScan",
-                "path": str(file_path.parent)  # Scan the directory
-            }
-            
+
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload) as response:
-                    if response.status == 201:
-                        self.logger.info(f"✓ Triggered Sonarr import for: {file_path.name}")
-                        return True
-                    else:
-                        error_text = await response.text()
-                        self.logger.error(f"Sonarr import failed ({response.status}): {error_text}")
+                # Step 1: ask Sonarr to analyse the file and match it to a series
+                async with session.get(
+                    f"{self.sonarr_url}/api/v3/manualimport",
+                    headers=headers,
+                    params={"folder": str(file_path.parent), "filterExistingFiles": "false"},
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        self.logger.error(f"Sonarr manualimport lookup failed ({resp.status}): {body}")
                         return False
-        
+                    decisions = await resp.json()
+
+                # Filter to our file and only decisions Sonarr could fully resolve
+                importable = [
+                    d for d in decisions
+                    if Path(d.get("path", "")).name == file_path.name
+                    and d.get("series")
+                    and not d.get("rejections", [])
+                ]
+
+                if not importable:
+                    all_rejections = [
+                        f"{Path(d['path']).name}: {[r['reason'] for r in d.get('rejections', [])]}"
+                        for d in decisions
+                        if Path(d.get("path", "")).name == file_path.name
+                    ]
+                    if all_rejections:
+                        self.logger.warning(f"Sonarr rejected '{file_path.name}': {all_rejections}")
+                    else:
+                        self.logger.warning(
+                            f"Sonarr could not identify '{file_path.name}' — "
+                            "ensure the series is added to Sonarr and the filename contains S01E01-style info"
+                        )
+                    return False
+
+                # Step 2: commit the import
+                payload = {
+                    "name": "ManualImport",
+                    "importMode": "Move",
+                    "files": [
+                        {
+                            "path": d["path"],
+                            "seriesId": d["series"]["id"],
+                            "seasonNumber": d.get("seasonNumber"),
+                            "episodeIds": [e["id"] for e in d.get("episodes", [])],
+                            "quality": d.get("quality"),
+                            "languages": d.get("languages", []),
+                            "releaseGroup": d.get("releaseGroup", ""),
+                            "downloadId": "",
+                        }
+                        for d in importable
+                    ],
+                }
+
+                async with session.post(
+                    f"{self.sonarr_url}/api/v3/command",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=payload,
+                ) as resp:
+                    if resp.status == 201:
+                        series_title = importable[0]["series"]["title"]
+                        self.logger.info(f"✓ Sonarr import triggered: '{file_path.name}' → {series_title}")
+                        return True
+                    body = await resp.text()
+                    self.logger.error(f"Sonarr ManualImport command failed ({resp.status}): {body}")
+                    return False
+
         except ImportError:
-            self.logger.warning("aiohttp not installed - Sonarr integration disabled. Install with: pip install aiohttp")
+            self.logger.warning("aiohttp not installed — Sonarr integration disabled. Install with: pip install aiohttp")
             self.sonarr_enabled = False
             return False
         except Exception as e:
